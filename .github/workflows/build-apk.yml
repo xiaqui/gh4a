@@ -30,17 +30,17 @@ jobs:
 
       - name: Create OAuth client.properties
         run: |
-          cat > app/client.properties <<'EOF'
+          cat > client.properties <<'EOF'
           ClientId="${{ secrets.OCTODROID_CLIENT_ID }}"
           ClientSecret="${{ secrets.OCTODROID_CLIENT_SECRET }}"
           EOF
 
-      - name: Verify OAuth client.properties location
+      - name: Verify OAuth client.properties
         run: |
-          test -s app/client.properties
-          grep -q '^ClientId=".' app/client.properties
-          grep -q '^ClientSecret=".' app/client.properties
-          echo "OAuth client.properties ready in app/"
+          test -s client.properties
+          grep -q '^ClientId=".' client.properties
+          grep -q '^ClientSecret=".' client.properties
+          echo "OAuth client.properties ready at project root"
 
       - name: Build debug APK
         run: |
