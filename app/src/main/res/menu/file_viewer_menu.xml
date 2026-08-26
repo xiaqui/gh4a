@@ -7,6 +7,11 @@
         android:title="@string/search"
         app:showAsAction="always" />
     <item
+        android:id="@+id/download"
+        android:icon="@drawable/menu_download"
+        android:title="@string/download"
+        app:showAsAction="always" />
+    <item
         android:id="@+id/browser"
         android:icon="@drawable/menu_web"
         android:title="@string/open_in_browser"
@@ -15,11 +20,6 @@
         android:id="@+id/share"
         android:icon="@drawable/menu_share"
         android:title="@string/share"
-        app:showAsAction="ifRoom" />
-    <item
-        android:id="@+id/download"
-        android:icon="@drawable/menu_download"
-        android:title="@string/download"
         app:showAsAction="ifRoom" />
     <item
         android:id="@+id/wrap"
