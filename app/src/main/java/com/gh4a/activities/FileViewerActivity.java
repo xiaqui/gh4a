@@ -240,13 +240,14 @@ public class FileViewerActivity extends WebViewerActivity
                 return true;
             case R.id.download:
                 String loadedContent = mContent != null ? mContent.content() : null;
+                String mimeType = FileUtils.getMimeTypeFor(mPath);
                 if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
                         && !TextUtils.isEmpty(loadedContent)) {
                     DownloadUtils.saveBase64ContentWithPermissionCheck(this, loadedContent,
-                            FileUtils.getFileName(mPath));
+                            FileUtils.getFileName(mPath), mimeType);
                 } else {
                     DownloadUtils.enqueueDownloadWithPermissionCheck(this, buildRawFileUrl(),
-                            FileUtils.getMimeTypeFor(mPath), FileUtils.getFileName(mPath), null);
+                            mimeType, FileUtils.getFileName(mPath), null);
                 }
                 return true;
             case R.id.share:
