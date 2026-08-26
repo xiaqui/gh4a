@@ -21,6 +21,7 @@ import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import androidx.annotation.Nullable;
 import androidx.annotation.StringRes;
@@ -238,8 +239,15 @@ public class FileViewerActivity extends WebViewerActivity
                 IntentUtils.launchBrowser(this, url);
                 return true;
             case R.id.download:
-                DownloadUtils.enqueueDownloadWithPermissionCheck(this, buildRawFileUrl(),
-                        FileUtils.getMimeTypeFor(mPath), FileUtils.getFileName(mPath), null);
+                String loadedContent = mContent != null ? mContent.content() : null;
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
+                        && !TextUtils.isEmpty(loadedContent)) {
+                    DownloadUtils.saveBase64ContentWithPermissionCheck(this, loadedContent,
+                            FileUtils.getFileName(mPath));
+                } else {
+                    DownloadUtils.enqueueDownloadWithPermissionCheck(this, buildRawFileUrl(),
+                            FileUtils.getMimeTypeFor(mPath), FileUtils.getFileName(mPath), null);
+                }
                 return true;
             case R.id.share:
                 IntentUtils.share(this, getString(R.string.share_file_subject,
