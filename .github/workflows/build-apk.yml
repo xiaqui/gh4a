@@ -20,9 +20,17 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Check OAuth secrets
+        env:
+          OCTODROID_CLIENT_ID: ${{ secrets.OCTODROID_CLIENT_ID }}
+          OCTODROID_CLIENT_SECRET: ${{ secrets.OCTODROID_CLIENT_SECRET }}
+        run: |
+          if [ -n "$OCTODROID_CLIENT_ID" ]; then echo "Client ID present: yes"; else echo "Client ID present: no"; fi
+          if [ -n "$OCTODROID_CLIENT_SECRET" ]; then echo "Client Secret present: yes"; else echo "Client Secret present: no"; fi
+
       - name: Create OAuth client.properties
         run: |
-          cat > app/client.properties <<'EOF'
+          cat > client.properties <<'EOF'
           ClientId="${{ secrets.OCTODROID_CLIENT_ID }}"
           ClientSecret="${{ secrets.OCTODROID_CLIENT_SECRET }}"
           EOF
