@@ -54,11 +54,11 @@ public class DownloadUtils {
     }
 
     public static void saveBase64ContentWithPermissionCheck(final BaseActivity activity,
-            final String base64Content, final String fileName) {
+            final String base64Content, final String fileName, final String mimeType) {
         handleDownloadPermissionCheck(activity, () -> new Thread(() -> {
             try {
                 byte[] data = Base64.decode(base64Content, Base64.DEFAULT);
-                saveBytesToDownloads(activity.getApplicationContext(), data, fileName);
+                saveBytesToDownloads(activity.getApplicationContext(), data, fileName, mimeType);
             } catch (IllegalArgumentException e) {
                 showDownloadToast(activity.getApplicationContext(),
                         "Download failed: invalid file content");
@@ -86,7 +86,8 @@ public class DownloadUtils {
             String description, String mimeType, String mediaType,
             boolean wifiOnly, boolean addAuthHeader) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q && !wifiOnly) {
-            enqueueLegacyHttpDownload(context, uri.toString(), fileName, mediaType, addAuthHeader);
+            enqueueLegacyHttpDownload(context, uri.toString(), fileName, mimeType, mediaType,
+                    addAuthHeader);
             return;
         }
 
@@ -115,7 +116,7 @@ public class DownloadUtils {
     }
 
     private static void enqueueLegacyHttpDownload(Context context, String url, String fileName,
-            String mediaType, boolean addAuthHeader) {
+            String mimeType, String mediaType, boolean addAuthHeader) {
         final Context appContext = context.getApplicationContext();
         final Request.Builder requestBuilder = new Request.Builder().url(url);
 
@@ -151,7 +152,7 @@ public class DownloadUtils {
                     }
 
                     try (InputStream in = body.byteStream()) {
-                        saveStreamToDownloads(appContext, in, fileName);
+                        saveStreamToDownloads(appContext, in, fileName, mimeType);
                     }
                 } catch (IOException | RuntimeException e) {
                     showDownloadToast(appContext, "Download failed: " + describeException(e));
@@ -160,7 +161,8 @@ public class DownloadUtils {
         });
     }
 
-    private static void saveBytesToDownloads(Context context, byte[] data, String fileName) {
+    private static void saveBytesToDownloads(Context context, byte[] data, String fileName,
+            String mimeType) {
         try {
             File downloadsDir = Environment.getExternalStoragePublicDirectory(
                     Environment.DIRECTORY_DOWNLOADS);
@@ -181,14 +183,14 @@ public class DownloadUtils {
                 out.flush();
             }
 
-            finishSavedFile(context, temporary, destination, fileName);
+            finishSavedFile(context, temporary, destination, fileName, mimeType);
         } catch (IOException | RuntimeException e) {
             showDownloadToast(context, "Download failed: " + describeException(e));
         }
     }
 
-    private static void saveStreamToDownloads(Context context, InputStream in, String fileName)
-            throws IOException {
+    private static void saveStreamToDownloads(Context context, InputStream in, String fileName,
+            String mimeType) throws IOException {
         File downloadsDir = Environment.getExternalStoragePublicDirectory(
                 Environment.DIRECTORY_DOWNLOADS);
         if (!downloadsDir.exists() && !downloadsDir.mkdirs()) {
@@ -212,11 +214,11 @@ public class DownloadUtils {
             out.flush();
         }
 
-        finishSavedFile(context, temporary, destination, fileName);
+        finishSavedFile(context, temporary, destination, fileName, mimeType);
     }
 
     private static void finishSavedFile(Context context, File temporary, File destination,
-            String fileName) {
+            String fileName, String mimeType) {
         if (destination.exists() && !destination.delete()) {
             temporary.delete();
             showDownloadToast(context, "Download failed: cannot replace existing file");
@@ -227,7 +229,26 @@ public class DownloadUtils {
             showDownloadToast(context, "Download failed: rename .part failed");
             return;
         }
+
+        registerCompletedDownload(context, destination, fileName, mimeType);
         showDownloadToast(context, "Downloaded to Downloads/" + fileName);
+    }
+
+    @SuppressWarnings("deprecation")
+    private static void registerCompletedDownload(Context context, File file, String fileName,
+            String mimeType) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            return;
+        }
+        try {
+            DownloadManager dm =
+                    (DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
+            dm.addCompletedDownload(fileName, fileName, true,
+                    mimeType != null ? mimeType : "application/octet-stream",
+                    file.getAbsolutePath(), file.length(), false);
+        } catch (RuntimeException ignored) {
+            // The file is already safely written. Registration is only for the system Downloads UI.
+        }
     }
 
     private static String describeException(Throwable error) {
