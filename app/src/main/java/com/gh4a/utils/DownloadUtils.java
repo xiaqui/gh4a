@@ -11,6 +11,7 @@ import android.os.Build;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Base64;
 import android.widget.Toast;
 
 import com.gh4a.BaseActivity;
@@ -52,6 +53,19 @@ public class DownloadUtils {
                 () -> enqueueDownload(activity, url, fileName, description, mimeType, null, true));
     }
 
+    public static void saveBase64ContentWithPermissionCheck(final BaseActivity activity,
+            final String base64Content, final String fileName) {
+        handleDownloadPermissionCheck(activity, () -> new Thread(() -> {
+            try {
+                byte[] data = Base64.decode(base64Content, Base64.DEFAULT);
+                saveBytesToDownloads(activity.getApplicationContext(), data, fileName);
+            } catch (IllegalArgumentException e) {
+                showDownloadToast(activity.getApplicationContext(),
+                        "Download failed: invalid file content");
+            }
+        }).start());
+    }
+
     private static void handleDownloadPermissionCheck(final BaseActivity activity, Runnable func) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             func.run();
@@ -59,7 +73,8 @@ public class DownloadUtils {
         }
         final ActivityCompat.OnRequestPermissionsResultCallback cb =
                 (requestCode, permissions, grantResults) -> {
-                    if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    if (grantResults.length > 0
+                            && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                         func.run();
                     }
                 };
@@ -135,47 +150,84 @@ public class DownloadUtils {
                         return;
                     }
 
-                    File downloadsDir = Environment.getExternalStoragePublicDirectory(
-                            Environment.DIRECTORY_DOWNLOADS);
-                    if (!downloadsDir.exists() && !downloadsDir.mkdirs()) {
-                        showDownloadToast(appContext, "Download failed: cannot open Downloads");
-                        return;
+                    try (InputStream in = body.byteStream()) {
+                        saveStreamToDownloads(appContext, in, fileName);
                     }
-
-                    File destination = new File(downloadsDir, fileName);
-                    File temporary = new File(downloadsDir, fileName + ".part");
-                    if (temporary.exists() && !temporary.delete()) {
-                        showDownloadToast(appContext, "Download failed: cannot remove stale .part file");
-                        return;
-                    }
-
-                    try (InputStream in = body.byteStream();
-                            FileOutputStream out = new FileOutputStream(temporary)) {
-                        byte[] buffer = new byte[8192];
-                        int count;
-                        while ((count = in.read(buffer)) != -1) {
-                            out.write(buffer, 0, count);
-                        }
-                        out.flush();
-                    }
-
-                    if (destination.exists() && !destination.delete()) {
-                        temporary.delete();
-                        showDownloadToast(appContext, "Download failed: cannot replace existing file");
-                        return;
-                    }
-                    if (!temporary.renameTo(destination)) {
-                        temporary.delete();
-                        showDownloadToast(appContext, "Download failed: rename .part failed");
-                        return;
-                    }
-
-                    showDownloadToast(appContext, "Downloaded to Downloads/" + fileName);
                 } catch (IOException | RuntimeException e) {
                     showDownloadToast(appContext, "Download failed: " + describeException(e));
                 }
             }
         });
+    }
+
+    private static void saveBytesToDownloads(Context context, byte[] data, String fileName) {
+        try {
+            File downloadsDir = Environment.getExternalStoragePublicDirectory(
+                    Environment.DIRECTORY_DOWNLOADS);
+            if (!downloadsDir.exists() && !downloadsDir.mkdirs()) {
+                showDownloadToast(context, "Download failed: cannot open Downloads");
+                return;
+            }
+
+            File destination = new File(downloadsDir, fileName);
+            File temporary = new File(downloadsDir, fileName + ".part");
+            if (temporary.exists() && !temporary.delete()) {
+                showDownloadToast(context, "Download failed: cannot remove stale .part file");
+                return;
+            }
+
+            try (FileOutputStream out = new FileOutputStream(temporary)) {
+                out.write(data);
+                out.flush();
+            }
+
+            finishSavedFile(context, temporary, destination, fileName);
+        } catch (IOException | RuntimeException e) {
+            showDownloadToast(context, "Download failed: " + describeException(e));
+        }
+    }
+
+    private static void saveStreamToDownloads(Context context, InputStream in, String fileName)
+            throws IOException {
+        File downloadsDir = Environment.getExternalStoragePublicDirectory(
+                Environment.DIRECTORY_DOWNLOADS);
+        if (!downloadsDir.exists() && !downloadsDir.mkdirs()) {
+            showDownloadToast(context, "Download failed: cannot open Downloads");
+            return;
+        }
+
+        File destination = new File(downloadsDir, fileName);
+        File temporary = new File(downloadsDir, fileName + ".part");
+        if (temporary.exists() && !temporary.delete()) {
+            showDownloadToast(context, "Download failed: cannot remove stale .part file");
+            return;
+        }
+
+        try (FileOutputStream out = new FileOutputStream(temporary)) {
+            byte[] buffer = new byte[8192];
+            int count;
+            while ((count = in.read(buffer)) != -1) {
+                out.write(buffer, 0, count);
+            }
+            out.flush();
+        }
+
+        finishSavedFile(context, temporary, destination, fileName);
+    }
+
+    private static void finishSavedFile(Context context, File temporary, File destination,
+            String fileName) {
+        if (destination.exists() && !destination.delete()) {
+            temporary.delete();
+            showDownloadToast(context, "Download failed: cannot replace existing file");
+            return;
+        }
+        if (!temporary.renameTo(destination)) {
+            temporary.delete();
+            showDownloadToast(context, "Download failed: rename .part failed");
+            return;
+        }
+        showDownloadToast(context, "Downloaded to Downloads/" + fileName);
     }
 
     private static String describeException(Throwable error) {
