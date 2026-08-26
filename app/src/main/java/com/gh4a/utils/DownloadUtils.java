@@ -11,6 +11,7 @@ import android.os.Build;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.widget.Toast;
 
 import com.gh4a.BaseActivity;
 import com.gh4a.Gh4Application;
@@ -19,7 +20,10 @@ import com.gh4a.ServiceFactory;
 import com.meisolsson.githubsdk.model.Download;
 import com.meisolsson.githubsdk.model.ReleaseAsset;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 
 import androidx.appcompat.app.AlertDialog;
 import androidx.core.app.ActivityCompat;
@@ -28,6 +32,7 @@ import okhttp3.Callback;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
+import okhttp3.ResponseBody;
 
 public class DownloadUtils {
     public static void enqueueDownloadWithPermissionCheck(final BaseActivity activity,
@@ -44,7 +49,7 @@ public class DownloadUtils {
     public static void enqueueDownloadWithPermissionCheck(final BaseActivity activity,
             final String url, final String mimeType, final String fileName, final String description) {
         handleDownloadPermissionCheck(activity,
-                () -> enqueueDownload(activity, url, fileName, description, mimeType, null, false));
+                () -> enqueueDownload(activity, url, fileName, description, mimeType, null, true));
     }
 
     private static void handleDownloadPermissionCheck(final BaseActivity activity, Runnable func) {
@@ -67,6 +72,15 @@ public class DownloadUtils {
     private static void enqueueDownload(Context context, Uri uri, String fileName,
             String description, String mimeType, String mediaType,
             boolean wifiOnly, boolean addAuthHeader) {
+        // Android's DownloadManager on older releases has become unreliable with GitHub's
+        // current HTTPS/raw-content endpoints. For legacy Android, download through the same
+        // OkHttp stack the app already uses. This also lets private-repository raw files carry
+        // the OAuth token, which DownloadManager otherwise loses.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q && !wifiOnly) {
+            enqueueLegacyHttpDownload(context, uri.toString(), fileName, mediaType, addAuthHeader);
+            return;
+        }
+
         final DownloadManager dm = (DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
         DownloadManager.Request request = new DownloadManager.Request(uri)
                 .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
@@ -89,6 +103,89 @@ public class DownloadUtils {
         }
 
         dm.enqueue(request);
+    }
+
+    private static void enqueueLegacyHttpDownload(Context context, String url, String fileName,
+            String mediaType, boolean addAuthHeader) {
+        final Context appContext = context.getApplicationContext();
+        final Request.Builder requestBuilder = new Request.Builder().url(url);
+
+        if (mediaType != null) {
+            requestBuilder.header("Accept", mediaType);
+        }
+        final String token = Gh4Application.get().getAuthToken();
+        if (addAuthHeader && token != null) {
+            requestBuilder.header("Authorization", "Token " + token);
+        }
+
+        final OkHttpClient client = ServiceFactory.getHttpClientBuilder().build();
+        client.newCall(requestBuilder.build()).enqueue(new Callback() {
+            @Override
+            public void onFailure(Call call, IOException e) {
+                showDownloadToast(appContext, "Download failed");
+            }
+
+            @Override
+            public void onResponse(Call call, Response response) {
+                try (Response closeableResponse = response) {
+                    if (!closeableResponse.isSuccessful()) {
+                        showDownloadToast(appContext,
+                                "Download failed (HTTP " + closeableResponse.code() + ")");
+                        return;
+                    }
+
+                    ResponseBody body = closeableResponse.body();
+                    if (body == null) {
+                        showDownloadToast(appContext, "Download failed");
+                        return;
+                    }
+
+                    File downloadsDir = Environment.getExternalStoragePublicDirectory(
+                            Environment.DIRECTORY_DOWNLOADS);
+                    if (!downloadsDir.exists() && !downloadsDir.mkdirs()) {
+                        showDownloadToast(appContext, "Download failed: cannot open Downloads");
+                        return;
+                    }
+
+                    File destination = new File(downloadsDir, fileName);
+                    File temporary = new File(downloadsDir, fileName + ".part");
+                    if (temporary.exists() && !temporary.delete()) {
+                        showDownloadToast(appContext, "Download failed");
+                        return;
+                    }
+
+                    try (InputStream in = body.byteStream();
+                            FileOutputStream out = new FileOutputStream(temporary)) {
+                        byte[] buffer = new byte[8192];
+                        int count;
+                        while ((count = in.read(buffer)) != -1) {
+                            out.write(buffer, 0, count);
+                        }
+                        out.flush();
+                    }
+
+                    if (destination.exists() && !destination.delete()) {
+                        temporary.delete();
+                        showDownloadToast(appContext, "Download failed: file already exists");
+                        return;
+                    }
+                    if (!temporary.renameTo(destination)) {
+                        temporary.delete();
+                        showDownloadToast(appContext, "Download failed while saving file");
+                        return;
+                    }
+
+                    showDownloadToast(appContext, "Downloaded to Downloads/" + fileName);
+                } catch (IOException e) {
+                    showDownloadToast(appContext, "Download failed");
+                }
+            }
+        });
+    }
+
+    private static void showDownloadToast(Context context, String message) {
+        new Handler(Looper.getMainLooper()).post(
+                () -> Toast.makeText(context, message, Toast.LENGTH_SHORT).show());
     }
 
     private static void enqueueDownload(final Context context, final ReleaseAsset asset) {
