@@ -243,11 +243,15 @@ public class DownloadUtils {
         try {
             DownloadManager dm =
                     (DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
-            dm.addCompletedDownload(fileName, fileName, true,
+            long id = dm.addCompletedDownload(fileName, fileName, true,
                     mimeType != null ? mimeType : "application/octet-stream",
-                    file.getAbsolutePath(), file.length(), false);
-        } catch (RuntimeException ignored) {
-            // The file is already safely written. Registration is only for the system Downloads UI.
+                    file.getAbsolutePath(), file.length(), true);
+            if (id < 0) {
+                showDownloadToast(context, "Saved, but Downloads registration failed");
+            }
+        } catch (RuntimeException e) {
+            showDownloadToast(context,
+                    "Saved, but Downloads registration failed: " + describeException(e));
         }
     }
 
