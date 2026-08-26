@@ -54,8 +54,6 @@ public class DownloadUtils {
 
     private static void handleDownloadPermissionCheck(final BaseActivity activity, Runnable func) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            // API 29+ doesn't require WRITE_EXTERNAL_STORAGE permission anymore,
-            // since we're writing to a pre-defined public directory only
             func.run();
             return;
         }
@@ -72,10 +70,6 @@ public class DownloadUtils {
     private static void enqueueDownload(Context context, Uri uri, String fileName,
             String description, String mimeType, String mediaType,
             boolean wifiOnly, boolean addAuthHeader) {
-        // Android's DownloadManager on older releases has become unreliable with GitHub's
-        // current HTTPS/raw-content endpoints. For legacy Android, download through the same
-        // OkHttp stack the app already uses. This also lets private-repository raw files carry
-        // the OAuth token, which DownloadManager otherwise loses.
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q && !wifiOnly) {
             enqueueLegacyHttpDownload(context, uri.toString(), fileName, mediaType, addAuthHeader);
             return;
@@ -122,7 +116,7 @@ public class DownloadUtils {
         client.newCall(requestBuilder.build()).enqueue(new Callback() {
             @Override
             public void onFailure(Call call, IOException e) {
-                showDownloadToast(appContext, "Download failed");
+                showDownloadToast(appContext, "Download failed: " + describeException(e));
             }
 
             @Override
@@ -130,13 +124,14 @@ public class DownloadUtils {
                 try (Response closeableResponse = response) {
                     if (!closeableResponse.isSuccessful()) {
                         showDownloadToast(appContext,
-                                "Download failed (HTTP " + closeableResponse.code() + ")");
+                                "Download failed: HTTP " + closeableResponse.code() + " "
+                                        + closeableResponse.message());
                         return;
                     }
 
                     ResponseBody body = closeableResponse.body();
                     if (body == null) {
-                        showDownloadToast(appContext, "Download failed");
+                        showDownloadToast(appContext, "Download failed: empty response body");
                         return;
                     }
 
@@ -150,7 +145,7 @@ public class DownloadUtils {
                     File destination = new File(downloadsDir, fileName);
                     File temporary = new File(downloadsDir, fileName + ".part");
                     if (temporary.exists() && !temporary.delete()) {
-                        showDownloadToast(appContext, "Download failed");
+                        showDownloadToast(appContext, "Download failed: cannot remove stale .part file");
                         return;
                     }
 
@@ -166,39 +161,38 @@ public class DownloadUtils {
 
                     if (destination.exists() && !destination.delete()) {
                         temporary.delete();
-                        showDownloadToast(appContext, "Download failed: file already exists");
+                        showDownloadToast(appContext, "Download failed: cannot replace existing file");
                         return;
                     }
                     if (!temporary.renameTo(destination)) {
                         temporary.delete();
-                        showDownloadToast(appContext, "Download failed while saving file");
+                        showDownloadToast(appContext, "Download failed: rename .part failed");
                         return;
                     }
 
                     showDownloadToast(appContext, "Downloaded to Downloads/" + fileName);
-                } catch (IOException e) {
-                    showDownloadToast(appContext, "Download failed");
+                } catch (IOException | RuntimeException e) {
+                    showDownloadToast(appContext, "Download failed: " + describeException(e));
                 }
             }
         });
     }
 
+    private static String describeException(Throwable error) {
+        String name = error.getClass().getSimpleName();
+        String message = error.getMessage();
+        if (message == null || message.trim().isEmpty()) {
+            return name;
+        }
+        return name + ": " + message;
+    }
+
     private static void showDownloadToast(Context context, String message) {
         new Handler(Looper.getMainLooper()).post(
-                () -> Toast.makeText(context, message, Toast.LENGTH_SHORT).show());
+                () -> Toast.makeText(context, message, Toast.LENGTH_LONG).show());
     }
 
     private static void enqueueDownload(final Context context, final ReleaseAsset asset) {
-        // Ugly workaround for #972 (see #976 for analysis), suggested by GH support:
-        // "First, you make an API call to the endpoint for fetching an asset and you pass in the
-        //  token via the Authorization header. You make this call using an HTTP library (not via
-        //  the Android Download Manager) and you disable automatic following of redirects when you
-        //  make that call (in case that's enabled by default). The result of that call will be a
-        //  redirect response with a Location header.
-        //  Second, you use the Android Download Manager to download the asset from the URL that's
-        //  provided in the Location header from the response of the first step. You would not
-        //  provide an Authorization header here since the required authorization is already a
-        //  part of the URL."
         final OkHttpClient client = ServiceFactory.getHttpClientBuilder()
                 .followRedirects(false)
                 .build();
