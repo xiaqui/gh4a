@@ -11,6 +11,7 @@ import android.os.Build;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.TextUtils;
 import android.util.Base64;
 import android.widget.Toast;
 
@@ -36,6 +37,21 @@ import okhttp3.Response;
 import okhttp3.ResponseBody;
 
 public class DownloadUtils {
+    public static void downloadRepositoryFileWithPermissionCheck(final BaseActivity activity,
+            final String base64Content, final String rawUrl, final String path) {
+        String mimeType = FileUtils.getMimeTypeFor(path);
+        String fileName = FileUtils.getFileName(path);
+        if (shouldSaveLoadedContent(Build.VERSION.SDK_INT, base64Content)) {
+            saveBase64ContentWithPermissionCheck(activity, base64Content, fileName, mimeType);
+        } else {
+            enqueueDownloadWithPermissionCheck(activity, rawUrl, mimeType, fileName, null);
+        }
+    }
+
+    static boolean shouldSaveLoadedContent(int sdkVersion, String base64Content) {
+        return sdkVersion < Build.VERSION_CODES.Q && !TextUtils.isEmpty(base64Content);
+    }
+
     public static void enqueueDownloadWithPermissionCheck(final BaseActivity activity,
             final Download download) {
         enqueueDownloadWithPermissionCheck(activity, download.htmlUrl(), download.contentType(),

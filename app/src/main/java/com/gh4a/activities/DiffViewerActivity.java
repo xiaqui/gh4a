@@ -34,9 +34,11 @@ import android.view.View;
 
 import com.gh4a.Gh4Application;
 import com.gh4a.R;
+import com.gh4a.ServiceFactory;
 import com.gh4a.fragment.ConfirmationDialogFragment;
 import com.gh4a.utils.ActivityResultHelpers;
 import com.gh4a.utils.ApiHelpers;
+import com.gh4a.utils.DownloadUtils;
 import com.gh4a.utils.FileUtils;
 import com.gh4a.utils.HtmlUtils;
 import com.gh4a.utils.IntentUtils;
@@ -45,6 +47,7 @@ import com.gh4a.utils.StringUtils;
 import com.gh4a.widget.ReactionBar;
 import com.meisolsson.githubsdk.model.PositionalCommentBase;
 import com.meisolsson.githubsdk.model.Reactions;
+import com.meisolsson.githubsdk.service.repositories.RepositoryContentService;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -245,7 +248,7 @@ public abstract class DiffViewerActivity<C extends PositionalCommentBase> extend
         String viewAtTitle = getString(R.string.object_view_file_at, mSha.substring(0, 7));
         menu.add(0, MENU_ITEM_VIEW, Menu.NONE, viewAtTitle)
                 .setShowAsActionFlags(MenuItem.SHOW_AS_ACTION_NEVER);
-        menu.removeItem(R.id.download);
+        menu.removeItem(R.id.share);
 
         return super.onCreateOptionsMenu(menu);
     }
@@ -425,11 +428,26 @@ public abstract class DiffViewerActivity<C extends PositionalCommentBase> extend
                 IntentUtils.share(this, getString(R.string.share_commit_subject,
                         mSha.substring(0, 7), mRepoOwner + "/" + mRepoName), url);
                 return true;
+            case R.id.download:
+                downloadFile();
+                return true;
             case MENU_ITEM_VIEW:
                 startActivity(FileViewerActivity.makeIntent(this, mRepoOwner, mRepoName, mSha, mPath));
                 return true;
         }
         return super.onOptionsItemSelected(item);
+    }
+
+    private void downloadFile() {
+        RepositoryContentService service = ServiceFactory.get(RepositoryContentService.class, false);
+        registerTemporarySubscription(service.getContents(mRepoOwner, mRepoName, mPath, mSha)
+                .map(ApiHelpers::throwOnFailure)
+                .compose(RxUtils.wrapForBackgroundTask(this, R.string.loading_msg,
+                        getString(R.string.download_file_error)))
+                .subscribe(content -> DownloadUtils.downloadRepositoryFileWithPermissionCheck(this,
+                                content.content(), IntentUtils.createRawFileUrl(mRepoOwner,
+                                        mRepoName, mSha, mPath), mPath),
+                        error -> handleActionFailure("File download failed", error)));
     }
 
     @Override
