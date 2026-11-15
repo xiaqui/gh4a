@@ -2,6 +2,13 @@ name: Build APK
 
 on:
   workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/build-apk.yml'
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -52,3 +59,18 @@ jobs:
         with:
           name: octodroid-debug-apk
           path: app/build/outputs/apk/debug/*.apk
+
+      - name: Publish preview release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          apk=$(find app/build/outputs/apk/debug -maxdepth 1 -type f -name '*.apk' -print -quit)
+          test -n "$apk"
+          tag="gh4a-preview-${{ github.run_number }}"
+          gh release create "$tag" "$apk#gh4a-4.6.15-debug.apk" \
+            --target "$GITHUB_SHA" \
+            --title "GH4A 4.6.15 preview (Actions quota test)" \
+            --notes "Unsigned-for-production debug build from commit $GITHUB_SHA. Package is com.gh4a.debug, not an update for com.gh4a. Public repository GitHub-hosted runner billing test." \
+            --prerelease
